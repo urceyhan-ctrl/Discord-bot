@@ -1,0 +1,22 @@
+{
+  "name": "AMERIKANLAR",
+  "version": "1.0.0",
+  "description": "AMERIKANLAR Discord bot with .commands for moderation and fun",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js",
+    "autostart:install": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\\install-autostart.ps1",
+    "autostart:remove": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\\install-autostart.ps1 -Remove"
+  },
+  "keywords": [
+    "discord",
+    "bot",
+    "moderation"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "discord.js": "^14.18.0",
+    "dotenv": "^16.4.5"
+  }
+}
