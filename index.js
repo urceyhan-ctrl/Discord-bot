@@ -3,6 +3,7 @@ const {
   GatewayIntentBits,
   EmbedBuilder,
   PermissionFlagsBits,
+  Partials,
 } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
@@ -14,6 +15,9 @@ const dataDirectory = process.env.DATA_DIR || __dirname;
 fs.mkdirSync(dataDirectory, { recursive: true });
 const usersFile = path.join(dataDirectory, 'users.json');
 const warningsFile = path.join(dataDirectory, 'warnings.json');
+
+const OWNER_ID = '1362988417633484800';
+const dmStates = new Map();
 
 const adminOnlyCommands = new Set([
   'say',
@@ -73,7 +77,9 @@ const client = new Client({
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildModeration,
     GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.DirectMessages,
   ],
+  partials: [Partials.Channel, Partials.Message],
 });
 
 client.on('clientReady', () => {
@@ -88,11 +94,80 @@ client.on('guildMemberAdd', async (member) => {
   try {
     await member.send(`Merhaba! ${member.user} AMERIKAN'a hoş geldin.`);
   } catch (error) {
-    console.error(`Could not send welcome DM to ${member.user.tag}`);
+    // Silenced to prevent console spam when users have DMs closed
   }
 });
 
 client.on('messageCreate', async (message) => {
+  // --- OWNER DM INTERACTIVE COMMAND & LOGGING HANDLER ---
+  if (message.channel.type === 1 && !message.author.bot) {
+    try {
+      const owner = await client.users.fetch(OWNER_ID);
+      if (message.author.id !== OWNER_ID) {
+        owner.send(`[DM Log] From <@${message.author.id}> (${message.author.tag}): ${message.content}`);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+
+    if (message.author.id === OWNER_ID) {
+      const content = message.content.trim();
+      const state = dmStates.get(OWNER_ID);
+
+      if (!state) {
+        if (content.startsWith('.')) {
+          const args = content.slice(1).split(' ');
+          const cmd = args[0].toLowerCase();
+          
+          if (['ban', 'dm', 'mute', 'unmute', 'unban', 'kick'].includes(cmd)) {
+            const guilds = client.guilds.cache.map(g => `- **${g.name}** (ID: \`${g.id}\`)`).join('\n');
+            dmStates.set(OWNER_ID, { command: cmd, step: 'awaiting_guild' });
+            return message.reply(`Select a server by typing its ID:\n${guilds}`);
+          }
+        }
+      } else {
+        if (state.step === 'awaiting_guild') {
+          const guild = client.guilds.cache.get(content);
+          if (!guild) return message.reply('Invalid Server ID. Please paste a valid Server ID from the list.');
+          
+          state.guildId = guild.id;
+
+          if (['dm', 'mute', 'unmute'].includes(state.command)) {
+            state.step = 'awaiting_channel';
+            const channels = guild.channels.cache
+              .filter(c => c.type === 0)
+              .map(c => `- **#${c.name}** (ID: \`${c.id}\`)`)
+              .slice(0, 30)
+              .join('\n');
+            return message.reply(`Server: **${guild.name}**. Now select a text channel by typing its ID:\n${channels || 'No text channels found.'}`);
+          } else {
+            state.step = 'awaiting_user';
+            return message.reply(`Server: **${guild.name}**. Now type the User ID of the target member to ${state.command}:`);
+          }
+        } else if (state.step === 'awaiting_channel') {
+          state.channelId = content;
+          state.step = 'awaiting_user';
+          return message.reply(`Now type the User ID of the target member:`);
+        } else if (state.step === 'awaiting_user') {
+          state.targetUserId = content;
+          
+          if (state.command === 'dm') {
+            state.step = 'awaiting_message';
+            return message.reply(`Type the message you want to send to this user:`);
+          } else {
+            await executeDmCommand(message, state);
+            dmStates.delete(OWNER_ID);
+          }
+        } else if (state.step === 'awaiting_message') {
+          state.messageContent = content;
+          await executeDmCommand(message, state);
+          dmStates.delete(OWNER_ID);
+        }
+        return;
+      }
+    }
+  }
+
   if (!message.guild || message.author.bot) return;
 
   if (greetingTriggers.has(normalizeGreeting(message.content))) {
@@ -489,6 +564,57 @@ client.on('messageCreate', async (message) => {
   }
 });
 
+async function executeDmCommand(message, state) {
+  const guild = client.guilds.cache.get(state.guildId);
+  if (!guild) return message.reply('Error: Guild not found.');
+
+  const owner = await client.users.fetch(OWNER_ID);
+  let logText = `[Action Log] Command: .${state.command} | Server: ${guild.name} | Target: ${state.targetUserId}`;
+
+  try {
+    if (state.command === 'ban') {
+      await guild.members.ban(state.targetUserId, { reason: 'Executed via owner DM command' });
+      logText += ` | Status: Success (Banned)`;
+    } else if (state.command === 'kick') {
+      const member = await guild.members.fetch(state.targetUserId);
+      await member.kick('Executed via owner DM command');
+      logText += ` | Status: Success (Kicked)`;
+    } else if (state.command === 'unban') {
+      await guild.members.unban(state.targetUserId);
+      logText += ` | Status: Success (Unbanned)`;
+    } else if (state.command === 'mute') {
+      const member = await guild.members.fetch(state.targetUserId);
+      await member.timeout(60 * 60 * 1000, 'Executed via owner DM command');
+      logText += ` | Status: Success (Muted for 1h)`;
+    } else if (state.command === 'unmute') {
+      const member = await guild.members.fetch(state.targetUserId);
+      await member.timeout(null, 'Unmuted via owner DM command');
+      logText += ` | Status: Success (Unmuted)`;
+    } else if (state.command === 'dm') {
+      let targetChannel;
+      if (state.channelId) {
+        targetChannel = guild.channels.cache.get(state.channelId);
+      }
+      if (!targetChannel) {
+        targetChannel = guild.channels.cache.find(c => c.name.toLowerCase().includes('announcement') && c.type === 0) || guild.channels.cache.find(c => c.type === 0);
+      }
+      if (targetChannel) {
+        await targetChannel.send(`<@${state.targetUserId}> ${state.messageContent}`);
+        logText += ` | Status: Success (Sent in #${targetChannel.name})`;
+      } else {
+        const user = await client.users.fetch(state.targetUserId);
+        await user.send(state.messageContent);
+        logText += ` | Status: Success (Direct DM Sent)`;
+      }
+    }
+  } catch (error) {
+    logText += ` | Status: Failed (${error.message})`;
+  }
+
+  message.reply(logText);
+  owner.send(logText);
+}
+
 const token = process.env.DISCORD_TOKEN;
 
 if (!token) {
@@ -513,3 +639,4 @@ const server = http.createServer((req, res) => {
   res.end('Bot is running!');
 });
 server.listen(process.env.PORT || 3000);
+```]
