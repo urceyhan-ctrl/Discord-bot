@@ -17,11 +17,13 @@ const usersFile = path.join(dataDirectory, 'users.json');
 const warningsFile = path.join(dataDirectory, 'warnings.json');
 
 const OWNER_ID = '1362988417633484800';
+const WELCOME_CHANNEL_ID = '1539768398395744347'; // Updated Welcome Channel ID[cite: 1]
 const dmStates = new Map();
 
 const adminOnlyCommands = new Set([
   'say',
   'dm',
+  'role',
   'mute',
   'unmute',
   'kick',
@@ -33,30 +35,16 @@ const adminOnlyCommands = new Set([
   'unlock',
   'warn',
   'warnings',
-]);
-
-const greetingTriggers = new Set([
-  'sa',
-  'selamun aleykum',
-  'selamin aleykum',
-  'selaymin aleykum',
+  'clearwarns',
+  'clearall',
+  'nick',
+  'embed'
 ]);
 
 function hasAdministratorRole(member) {
   return member.roles.cache.some((role) =>
     role.permissions.has(PermissionFlagsBits.Administrator),
   );
-}
-
-function normalizeGreeting(content) {
-  return content
-    .trim()
-    .toLocaleLowerCase('tr-TR')
-    .replace(/[!?.,]+$/g, '')
-    .replace(/\s+/g, ' ')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/ı/g, 'i');
 }
 
 function loadWarnings() {
@@ -82,24 +70,39 @@ const client = new Client({
   partials: [Partials.Channel, Partials.Message],
 });
 
-client.on('clientReady', () => {
+client.on('ready', async () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
   client.user.setActivity({
-    name: '/Amerikanlar Made by Onurum203',
+    name: '.help | Made by Onurum203',
     type: 3,
   });
 });
 
 client.on('guildMemberAdd', async (member) => {
   try {
-    await member.send(`Merhaba! ${member.user} AMERIKAN'a hoş geldin.`);
+    await member.send(`Hello <@${member.id}> welcome to ${member.guild.name}`);
   } catch (error) {
-    // Silenced to prevent console spam when users have DMs closed
+    // Silenced to prevent console spam if DMs are closed
+  }
+
+  try {
+    const channel = member.guild.channels.cache.get(WELCOME_CHANNEL_ID);
+    if (channel) {
+      const embed = new EmbedBuilder()
+        .setColor('#5865F2')
+        .setTitle('Welcome!')
+        .setDescription(`Hello <@${member.id}> welcome to ${member.guild.name} !`)
+        .setImage(member.user.displayAvatarURL({ size: 1024 })) // Fixed image URL rendering for compatibility[cite: 1]
+        .setTimestamp();
+
+      await channel.send({ embeds: [embed] });
+    }
+  } catch (error) {
+    console.error("Failed to send welcome message:", error);
   }
 });
 
 client.on('messageCreate', async (message) => {
-  // --- OWNER DM INTERACTIVE COMMAND & LOGGING HANDLER ---
   if (message.channel.type === 1 && !message.author.bot) {
     try {
       const owner = await client.users.fetch(OWNER_ID);
@@ -170,8 +173,9 @@ client.on('messageCreate', async (message) => {
 
   if (!message.guild || message.author.bot) return;
 
-  if (greetingTriggers.has(normalizeGreeting(message.content))) {
-    return message.channel.send('As').catch(() => {});
+  const trimmedContent = message.content.trim();
+  if (trimmedContent.toLowerCase().startsWith('sa')) {
+    return message.channel.send(`as Aleykümselam`).catch(() => {});
   }
 
   if (!message.content.startsWith(prefix)) return;
@@ -183,9 +187,7 @@ client.on('messageCreate', async (message) => {
 
   if (adminOnlyCommands.has(command) &&
       (!message.member || !hasAdministratorRole(message.member))) {
-    return message.channel.send(
-      '||Only members with a role that has the Administrator permission can use this command.||',
-    ).catch(() => {});
+    return message.channel.send(`||Only members with a role that has the Administrator permission can use this command.||`).catch(() => {});
   }
 
   if (command === 'help') {
@@ -195,10 +197,14 @@ client.on('messageCreate', async (message) => {
       .setDescription('Here is a list of all available commands categorized by type:')
       .addFields(
         {
-          name: '🛡️ Moderation Commands (Admin)',
+          name: '🛡️ Moderation & Management Commands',
           value: 
-            '`.say <message>` - Makes the bot send a message\n' +
-            '`.dm @user <text>` - DMs a specific user\n' +
+            '`.say <message>` - Makes the bot speak\n' +
+            '`.embed <title> | <desc>` - Sends a custom embed\n' +
+            '`.dm <@user|role|everyone> <text>` - DMs users\n' +
+            '`.clearall` - Deletes and clones channel to clear all messages\n' +
+            '`.nick @user <name>` - Changes a users nickname\n' +
+            '`.role <@role> <@user>` - Adds a role to a user\n' +
             '`.mute @user <time>` - Mutes a user (e.g., 10s, 5m, 1h, 1d)\n' +
             '`.unmute @user` - Unmutes a user\n' +
             '`.kick @user [reason]` - Kicks a user\n' +
@@ -206,9 +212,10 @@ client.on('messageCreate', async (message) => {
             '`.unban <ID>` - Unbans a user by ID\n' +
             '`.warn @user [reason]` - Warns a user\n' +
             '`.warnings [@user]` - Views warnings\n' +
+            '`.clearwarns @user` - Clears warnings for a user\n' +
             '`.clear <1-100>` - Deletes messages\n' +
             '`.slowmode <seconds>` - Sets channel slowmode\n' +
-            '`.lock` / `unlock` - Locks/unlocks channel',
+            '`.lock` / `.unlock` - Locks/unlocks channel',
           inline: false,
         },
         {
@@ -217,12 +224,20 @@ client.on('messageCreate', async (message) => {
             '`.help` - Shows this help menu\n' +
             '`.ping` - Checks bot latency\n' +
             '`.avatar [@user]` - Shows user avatar\n' +
+            '`.whois [@user]` - Detailed user profile info\n' +
             '`.serverinfo` - Shows server details',
           inline: false,
         },
         {
           name: '🎮 Fun Commands',
           value: 
+            '`.ship @user1 @user2` - Calculate love compatibility\n' +
+            '`.hack @user` - Fake hack someone\n' +
+            '`.iq [@user]` - Checks your random IQ\n' +
+            '`.rate <text>` - Rates anything from 0-100%\n' +
+            '`.joke` - Tells a random joke\n' +
+            '`.fact` - Tells a fun random fact\n' +
+            '`.reverse <text>` - Reverses text\n' +
             '`.hello` - Greets you\n' +
             '`.coinflip` - Flips a coin\n' +
             '`.roll` - Rolls a 1-6 dice\n' +
@@ -239,13 +254,127 @@ client.on('messageCreate', async (message) => {
     return message.channel.send({ content: `||Command list below:||`, embeds: [helpEmbed] }).catch(() => {});
   }
 
+  if (command === 'clearall') {
+    await message.delete().catch(() => {});
+    const position = message.channel.position;
+    const newChannel = await message.channel.clone();
+    await message.channel.delete().catch(() => {});
+    newChannel.setPosition(position);
+    return newChannel.send(`☢️ **Channel Cleared!** All messages have been wiped.`);
+  }
+
+  if (command === 'embed') {
+    await message.delete().catch(() => {});
+    const contentArgs = args.join(' ').split('|').map(s => s.trim());
+    if (contentArgs.length < 2) {
+      return message.channel.send(`||Use \`.embed <Title> | <Description>\`||`).catch(() => {});
+    }
+    const customEmbed = new EmbedBuilder()
+      .setColor('#5865F2')
+      .setTitle(contentArgs[0])
+      .setDescription(contentArgs[1])
+      .setTimestamp();
+    return message.channel.send({ embeds: [customEmbed] });
+  }
+
+  if (command === 'nick') {
+    await message.delete().catch(() => {});
+    const targetMember = message.mentions.members.first();
+    const newNick = args.slice(1).join(' ');
+
+    if (!targetMember || !newNick) return message.channel.send(`||Use \`.nick @user <new nickname>\`||`).catch(() => {});
+    
+    try {
+      await targetMember.setNickname(newNick);
+      return message.channel.send(`✅ Changed nickname for ${targetMember.user.username} to **${newNick}**.`);
+    } catch (error) {
+      return message.channel.send(`❌ Failed to change nickname. My role might be too low.`);
+    }
+  }
+
+  if (command === 'ship') {
+    const user1 = message.mentions.users.first() || message.author;
+    const user2 = message.mentions.users.last() || message.author;
+    
+    if (user1.id === user2.id) {
+      return message.channel.send(`You can't ship someone with themselves! Mention two different users.`);
+    }
+
+    const rating = Math.floor(Math.random() * 101);
+    let response = "";
+    if (rating >= 90) response = "A match made in heaven! 💖";
+    else if (rating >= 70) response = "There's definitely a spark! ✨";
+    else if (rating >= 40) response = "There's some potential here. 🤔";
+    else response = "Yikes, maybe just stay friends... 💔";
+
+    const embed = new EmbedBuilder()
+      .setColor('#FFC0CB')
+      .setTitle(`💘 Matchmaking System`)
+      .setDescription(`**${user1.username}** x **${user2.username}**\n\nLove Rating: **${rating}%**\n*${response}*`);
+    
+    return message.channel.send({ embeds: [embed] });
+  }
+
+  if (command === 'hack') {
+    const target = message.mentions.users.first();
+    if (!target) return message.channel.send(`Mention someone to hack! \`.hack @user\``);
+
+    const msg = await message.channel.send(`💻 Initiating hack on ${target.username}...`);
+    
+    setTimeout(() => msg.edit(`[▖] Bypassing firewall...`), 1500);
+    setTimeout(() => msg.edit(`[▘] Finding IP address: 192.168.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}...`), 3000);
+    setTimeout(() => msg.edit(`[▝] Stealing Discord Token...`), 4500);
+    setTimeout(() => msg.edit(`[▗] Reporting account for being too awesome...`), 6000);
+    setTimeout(() => msg.edit(`✅ **Successfully and totally legitimately hacked ${target.username}!** (Just kidding)`), 8000);
+    return;
+  }
+
+  if (command === 'iq') {
+    const target = message.mentions.users.first() || message.author;
+    const iq = Math.floor(Math.random() * 200) + 1;
+    return message.channel.send(`🧠 **${target.username}**'s IQ is **${iq}**.`);
+  }
+
+  if (command === 'rate') {
+    const query = args.join(' ');
+    if (!query) return message.channel.send(`What would you like me to rate? \`.rate <thing>\``);
+    const rating = Math.floor(Math.random() * 101);
+    return message.channel.send(`⭐ I rate **${query}** a **${rating}/100**!`);
+  }
+
+  if (command === 'joke') {
+    const jokes = [
+      "Why don't skeletons fight each other? They don't have the guts.",
+      "What do you call a fake noodle? An impasta!",
+      "Why did the scarecrow win an award? Because he was outstanding in his field!",
+      "I told my wife she was drawing her eyebrows too high. She looked surprised."
+    ];
+    return message.channel.send(`😂 ${jokes[Math.floor(Math.random() * jokes.length)]}`);
+  }
+
+  if (command === 'fact') {
+    const facts = [
+      "Honey never spoils. Archaeologists have found pots of honey in ancient Egyptian tombs that are over 3,000 years old!",
+      "Bananas are curved because they grow towards the sun against gravity.",
+      "A group of flamingos is called a 'flamboyance'.",
+      "Sea otters hold hands while sleeping so they don't drift apart."
+    ];
+    return message.channel.send(`💡 **Did you know?** ${facts[Math.floor(Math.random() * facts.length)]}`);
+  }
+
+  if (command === 'reverse') {
+    const text = args.join(' ');
+    if (!text) return message.channel.send(`Provide text to reverse! \`.reverse <text>\``);
+    return message.channel.send(`🔄 ${text.split('').reverse().join('')}`);
+  }
+
   if (command === 'ping') {
     return message.channel.send(`||🏓 Pong! Latency: ${Date.now() - message.createdTimestamp}ms||`);
   }
 
   if (command === 'say') {
     const text = args.join(' ');
-    if (!text) return message.channel.send('||Use `.say <message>`||');
+    if (!text) return message.channel.send(`||Use \`.say <message>\`||`);
     
     await message.delete().catch(() => {});
     return message.channel.send(text);
@@ -253,18 +382,69 @@ client.on('messageCreate', async (message) => {
 
   if (command === 'dm') {
     await message.delete().catch(() => {});
-    const targetUser = message.mentions.users.first();
+    const targetArg = args[0]?.toLowerCase();
     const text = args.slice(1).join(' ');
 
-    if (!targetUser || !text) {
-      return message.channel.send('||Use `.dm @user <text>`||').catch(() => {});
+    if (!targetArg || !text) {
+      return message.channel.send(`||Use \`.dm <@user|role|everyone|here> <text>\`||`).catch(() => {});
+    }
+
+    await message.guild.members.fetch();
+
+    let targets = [];
+    const targetRole = message.mentions.roles.first() || message.guild.roles.cache.get(targetArg.replace(/[^0-9]/g, ''));
+
+    if (targetArg === '@everyone' || targetArg === 'everyone') {
+      targets = Array.from(message.guild.members.cache.values()).filter(m => !m.user.bot);
+    } else if (targetArg === '@here' || targetArg === 'here') {
+      targets = Array.from(message.guild.members.cache.values()).filter(m => !m.user.bot && m.presence && m.presence.status !== 'offline');
+    } else if (targetRole) {
+      targets = Array.from(targetRole.members.values()).filter(m => !m.user.bot);
+    } else {
+      const targetUser = message.mentions.users.first() || client.users.cache.get(targetArg.replace(/[^0-9]/g, ''));
+      if (targetUser) {
+        const member = await message.guild.members.fetch(targetUser.id).catch(() => null);
+        if (member) targets.push(member);
+      }
+    }
+
+    if (targets.length === 0) {
+      return message.channel.send(`||❌ No valid targets found or unable to resolve mention/role/everyone/here.||`).catch(() => {});
+    }
+
+    let successCount = 0;
+    let failCount = 0;
+
+    for (const member of targets) {
+      try {
+        await member.send(`${text}\n-# Bot Made By Onurum203`);
+        successCount++;
+      } catch (err) {
+        failCount++;
+      }
+    }
+
+    return message.channel.send(`||✅ DM broadcast complete. Sent: ${successCount}, Failed/Closed DMs: ${failCount}||`).catch(() => {});
+  }
+
+  if (command === 'role') {
+    await message.delete().catch(() => {});
+    const targetRole = message.mentions.roles.first() || message.guild.roles.cache.get(args[0]?.replace(/[^0-9]/g, ''));
+    const targetMember = message.mentions.members.first() || message.guild.members.cache.get(args[1]?.replace(/[^0-9]/g, ''));
+
+    if (!targetRole || !targetMember) {
+      return message.channel.send(`||Use \`.role <ping role> <user>\`||`).catch(() => {});
+    }
+
+    if (message.guild.members.me.roles.highest.position <= targetRole.position) {
+      return message.channel.send(`||❌ I cannot assign that role because it is higher than or equal to my highest role.||`).catch(() => {});
     }
 
     try {
-      await targetUser.send(text);
-      return message.channel.send(`||DM sent to ${targetUser.tag}||`).catch(() => {});
+      await targetMember.roles.add(targetRole, `Added via .role command by ${message.author.tag}`);
+      return message.channel.send(`||✅ Successfully added ${targetRole.name} to ${targetMember.user.tag}.||`).catch(() => {});
     } catch (error) {
-      return message.channel.send('||I could not DM that user. They might have DMs closed.||').catch(() => {});
+      return message.channel.send(`||❌ Failed to add role. Check bot permissions.||`).catch(() => {});
     }
   }
 
@@ -274,17 +454,17 @@ client.on('messageCreate', async (message) => {
     const durationStr = args.find(arg => /^\d+[smhd]$/i.test(arg));
 
     if (!targetMember || !durationStr) {
-      return message.channel.send('||Use `.mute @user <time>` (e.g. 10s, 5m, 1h, 10d)||').catch(() => {});
+      return message.channel.send(`||Use \`.mute @user <time>\` (e.g. 10s, 5m, 1h, 10d)||`).catch(() => {});
     }
 
     if (!targetMember.moderatable) {
-      return message.channel.send('||❌ I cannot mute that member. Their role might be higher than mine.||').catch(() => {});
+      return message.channel.send(`||❌ I cannot mute that member. Their role might be higher than mine.||`).catch(() => {});
     }
 
     const timeUnit = durationStr.slice(-1).toLowerCase();
     const timeVal = parseInt(durationStr.slice(0, -1));
 
-    if (isNaN(timeVal)) return message.channel.send('||❌ Invalid duration format. Use s, m, h, or d.||').catch(() => {});
+    if (isNaN(timeVal)) return message.channel.send(`||❌ Invalid duration format. Use s, m, h, or d.||`).catch(() => {});
 
     let ms = 0;
     if (timeUnit === 's') ms = timeVal * 1000;
@@ -292,13 +472,13 @@ client.on('messageCreate', async (message) => {
     else if (timeUnit === 'h') ms = timeVal * 60 * 60 * 1000;
     else if (timeUnit === 'd') ms = timeVal * 24 * 60 * 60 * 1000;
 
-    if (ms > 2419200000) return message.channel.send('||❌ Timeout duration cannot exceed 28 days.||').catch(() => {});
+    if (ms > 2419200000) return message.channel.send(`||❌ Timeout duration cannot exceed 28 days.||`).catch(() => {});
 
     try {
       await targetMember.timeout(ms, 'Muted via bot command');
       return message.channel.send(`||✅ ${targetMember.user.tag} has been muted for ${durationStr}.||`).catch(() => {});
     } catch (error) {
-      return message.channel.send('||❌ I could not mute that member.||').catch(() => {});
+      return message.channel.send(`||❌ I could not mute that member.||`).catch(() => {});
     }
   }
 
@@ -306,13 +486,13 @@ client.on('messageCreate', async (message) => {
     await message.delete().catch(() => {});
     const targetMember = message.mentions.members.first();
 
-    if (!targetMember) return message.channel.send('||Use `.unmute @user`||').catch(() => {});
+    if (!targetMember) return message.channel.send(`||Use \`.unmute @user\`||`).catch(() => {});
 
     try {
       await targetMember.timeout(null, 'Unmuted via bot command');
       return message.channel.send(`||✅ ${targetMember.user.tag} has been unmuted.||`).catch(() => {});
     } catch (error) {
-      return message.channel.send('||❌ I could not unmute that member.||').catch(() => {});
+      return message.channel.send(`||❌ I could not unmute that member.||`).catch(() => {});
     }
   }
 
@@ -321,14 +501,14 @@ client.on('messageCreate', async (message) => {
     const targetMember = message.mentions.members.first();
     const reason = args.slice(1).join(' ') || 'No reason provided';
 
-    if (!targetMember) return message.channel.send('||Use `.kick @user [reason]`||').catch(() => {});
-    if (!targetMember.kickable) return message.channel.send('||❌ I cannot kick that member.||').catch(() => {});
+    if (!targetMember) return message.channel.send(`||Use \`.kick @user [reason]\`||`).catch(() => {});
+    if (!targetMember.kickable) return message.channel.send(`||❌ I cannot kick that member.||`).catch(() => {});
 
     try {
       await targetMember.kick(reason);
       return message.channel.send(`||✅ ${targetMember.user.tag} was kicked. Reason: ${reason}||`).catch(() => {});
     } catch (error) {
-      return message.channel.send('||❌ I could not kick that member.||').catch(() => {});
+      return message.channel.send(`||❌ I could not kick that member.||`).catch(() => {});
     }
   }
 
@@ -337,14 +517,14 @@ client.on('messageCreate', async (message) => {
     const targetMember = message.mentions.members.first();
     const reason = args.slice(1).join(' ') || 'No reason provided';
 
-    if (!targetMember) return message.channel.send('||Use `.ban @user [reason]`||').catch(() => {});
-    if (!targetMember.bannable) return message.channel.send('||❌ I cannot ban that member.||').catch(() => {});
+    if (!targetMember) return message.channel.send(`||Use \`.ban @user [reason]\`||`).catch(() => {});
+    if (!targetMember.bannable) return message.channel.send(`||❌ I cannot ban that member.||`).catch(() => {});
 
     try {
       await targetMember.ban({ reason });
       return message.channel.send(`||✅ ${targetMember.user.tag} was banned. Reason: ${reason}||`).catch(() => {});
     } catch (error) {
-      return message.channel.send('||❌ I could not ban that member.||').catch(() => {});
+      return message.channel.send(`||❌ I could not ban that member.||`).catch(() => {});
     }
   }
 
@@ -352,13 +532,13 @@ client.on('messageCreate', async (message) => {
     await message.delete().catch(() => {});
     const targetId = args[0];
 
-    if (!targetId) return message.channel.send('||Use `.unban <User ID>`||').catch(() => {});
+    if (!targetId) return message.channel.send(`||Use \`.unban <User ID>\`||`).catch(() => {});
 
     try {
       await message.guild.members.unban(targetId);
       return message.channel.send(`||✅ Successfully unbanned user ID: ${targetId}||`).catch(() => {});
     } catch (error) {
-      return message.channel.send('||❌ I could not unban that member. Ensure the ID is correct and they are banned.||').catch(() => {});
+      return message.channel.send(`||❌ I could not unban that member. Ensure the ID is correct and they are banned.||`).catch(() => {});
     }
   }
 
@@ -367,7 +547,7 @@ client.on('messageCreate', async (message) => {
     const targetMember = message.mentions.members.first();
     const reason = args.slice(1).join(' ') || 'No reason provided';
 
-    if (!targetMember) return message.channel.send('||Use `.warn @user [reason]`||').catch(() => {});
+    if (!targetMember) return message.channel.send(`||Use \`.warn @user [reason]\`||`).catch(() => {});
 
     const warnings = loadWarnings();
     if (!warnings[targetMember.id]) {
@@ -403,14 +583,44 @@ client.on('messageCreate', async (message) => {
     return message.channel.send({ embeds: [embed] }).catch(() => {});
   }
 
+  if (command === 'clearwarns') {
+    await message.delete().catch(() => {});
+    const targetMember = message.mentions.members.first();
+    if (!targetMember) return message.channel.send(`||Use \`.clearwarns @user\`||`).catch(() => {});
+
+    const warnings = loadWarnings();
+    if (!warnings[targetMember.id] || warnings[targetMember.id].length === 0) {
+      return message.channel.send(`||${targetMember.user.tag} has no warnings to clear.||`);
+    }
+
+    delete warnings[targetMember.id];
+    saveWarnings(warnings);
+    return message.channel.send(`||✅ Successfully cleared all warnings for ${targetMember.user.tag}.||`);
+  }
+
   if (command === 'avatar') {
     const targetUser = message.mentions.users.first() || message.author;
     const embed = new EmbedBuilder()
       .setColor('#5865F2')
       .setTitle(`${targetUser.tag}'s Avatar`)
-      .setImage(targetUser.displayAvatarURL({ dynamic: true, size: 1024 }));
+      .setImage(targetUser.displayAvatarURL({ size: 1024 }));
 
     return message.channel.send({ embeds: [embed] }).catch(() => {});
+  }
+
+  if (command === 'whois') {
+    const targetMember = message.mentions.members.first() || message.member;
+    const embed = new EmbedBuilder()
+      .setColor('#5865F2')
+      .setTitle(`User Info: ${targetMember.user.tag}`)
+      .setThumbnail(targetMember.user.displayAvatarURL({ size: 1024 }))
+      .addFields(
+        { name: 'ID', value: `\`${targetMember.id}\``, inline: true },
+        { name: 'Joined Server', value: `<t:${Math.floor(targetMember.joinedTimestamp / 1000)}:D>`, inline: true },
+        { name: 'Account Created', value: `<t:${Math.floor(targetMember.user.createdTimestamp / 1000)}:D>`, inline: true },
+        { name: 'Roles', value: targetMember.roles.cache.size > 1 ? targetMember.roles.cache.filter(r => r.id !== message.guild.id).map(r => `<@&${r.id}>`).join(', ') : 'None', inline: false }
+      );
+    return message.channel.send({ embeds: [embed] });
   }
 
   if (command === 'serverinfo') {
@@ -418,7 +628,7 @@ client.on('messageCreate', async (message) => {
     const embed = new EmbedBuilder()
       .setColor('#5865F2')
       .setTitle(guild.name)
-      .setThumbnail(guild.iconURL({ dynamic: true }))
+      .setThumbnail(guild.iconURL({ size: 1024 }))
       .addFields(
         { name: 'Owner', value: `<@${guild.ownerId}>`, inline: true },
         { name: 'Members', value: `${guild.memberCount}`, inline: true },
@@ -449,7 +659,7 @@ client.on('messageCreate', async (message) => {
   }
 
   if (command === '8ball') {
-    if (!args.length) return message.channel.send('||Use `.8ball <question>`||').catch(() => {});
+    if (!args.length) return message.channel.send(`||Use \`.8ball <question>\`||`).catch(() => {});
 
     const answers = [
       'Yes.',
@@ -470,7 +680,7 @@ client.on('messageCreate', async (message) => {
       .filter(Boolean);
 
     if (choices.length < 2) {
-      return message.channel.send('||Use `.choose option 1 | option 2`||').catch(() => {});
+      return message.channel.send(`||Use \`.choose option 1 | option 2\`||`).catch(() => {});
     }
 
     const choice = choices[Math.floor(Math.random() * choices.length)];
@@ -485,7 +695,7 @@ client.on('messageCreate', async (message) => {
     const playerChoice = args[0]?.toLowerCase();
 
     if (!choices.includes(playerChoice)) {
-      return message.channel.send('||Use `.rps rock`, `.rps paper`, or `.rps scissors`||').catch(() => {});
+      return message.channel.send(`||Use \`.rps rock\`, \`.rps paper\`, or \`.rps scissors\`||`).catch(() => {});
     }
 
     const botChoice = choices[Math.floor(Math.random() * choices.length)];
@@ -495,20 +705,18 @@ client.on('messageCreate', async (message) => {
       (playerChoice === 'scissors' && botChoice === 'paper');
     const result = playerChoice === botChoice ? 'It is a tie!' : playerWins ? 'You win!' : 'I win!';
 
-    return message.channel.send(
-      `||You chose ${playerChoice}; I chose ${botChoice}. ${result}||`,
-    ).catch(() => {});
+    return message.channel.send(`||You chose ${playerChoice}; I chose ${botChoice}. ${result}||`).catch(() => {});
   }
 
   if (command === 'clear') {
     const amount = Number.parseInt(args[0], 10);
 
     if (!Number.isInteger(amount) || amount < 1 || amount > 100) {
-      return message.channel.send('||Use `.clear <1-100>`||').catch(() => {});
+      return message.channel.send(`||Use \`.clear <1-100>\`||`).catch(() => {});
     }
 
     if (typeof message.channel.bulkDelete !== 'function') {
-      return message.channel.send('||This command can only be used in a text channel.||').catch(() => {});
+      return message.channel.send(`||This command can only be used in a text channel.||`).catch(() => {});
     }
 
     try {
@@ -518,7 +726,7 @@ client.on('messageCreate', async (message) => {
       setTimeout(() => confirmation.delete().catch(() => {}), 3000);
       return;
     } catch (error) {
-      return message.channel.send('||I could not delete those messages.||').catch(() => {});
+      return message.channel.send(`||I could not delete those messages.||`).catch(() => {});
     }
   }
 
@@ -526,26 +734,26 @@ client.on('messageCreate', async (message) => {
     const seconds = Number.parseInt(args[0], 10);
 
     if (!Number.isInteger(seconds) || seconds < 0 || seconds > 21600) {
-      return message.channel.send('||Use `.slowmode <0-21600>`||').catch(() => {});
+      return message.channel.send(`||Use \`.slowmode <0-21600>\`||`).catch(() => {});
     }
 
     if (typeof message.channel.setRateLimitPerUser !== 'function') {
-      return message.channel.send('||This command can only be used in a text channel.||').catch(() => {});
+      return message.channel.send(`||This command can only be used in a text channel.||`).catch(() => {});
     }
 
     try {
       await message.channel.setRateLimitPerUser(seconds, `Set by ${message.author.tag}`);
       return message.channel.send(
-        seconds === 0 ? '||Slowmode is off.||' : `||Slowmode set to ${seconds} seconds.||`,
+        seconds === 0 ? `||Slowmode is off.||` : `||Slowmode set to ${seconds} seconds.||`,
       ).catch(() => {});
     } catch (error) {
-      return message.channel.send('||I could not change slowmode in this channel.||').catch(() => {});
+      return message.channel.send(`||I could not change slowmode in this channel.||`).catch(() => {});
     }
   }
 
   if (command === 'lock' || command === 'unlock') {
     if (!message.channel.permissionOverwrites) {
-      return message.channel.send('||This command can only be used in a guild channel.||').catch(() => {});
+      return message.channel.send(`||This command can only be used in a guild channel.||`).catch(() => {});
     }
 
     const isLocking = command === 'lock';
@@ -556,10 +764,10 @@ client.on('messageCreate', async (message) => {
         `${isLocking ? 'Locked' : 'Unlocked'} by ${message.author.tag}`,
       );
       return message.channel.send(
-        isLocking ? '||This channel is now locked.||' : '||This channel is now unlocked.||',
+        isLocking ? `||This channel is now locked.||` : `||This channel is now unlocked.||`,
       ).catch(() => {});
     } catch (error) {
-      return message.channel.send('||I could not update this channel.||').catch(() => {});
+      return message.channel.send(`||I could not update this channel.||`).catch(() => {});
     }
   }
 });
@@ -599,44 +807,22 @@ async function executeDmCommand(message, state) {
         targetChannel = guild.channels.cache.find(c => c.name.toLowerCase().includes('announcement') && c.type === 0) || guild.channels.cache.find(c => c.type === 0);
       }
       if (targetChannel) {
-        await targetChannel.send(`<@${state.targetUserId}> ${state.messageContent}`);
-        logText += ` | Status: Success (Sent in #${targetChannel.name})`;
+        await targetChannel.send(`<@${state.targetUserId}> ${state.messageContent}\n-# Bot Made By Onurum203`);
+        logText += ` | Status: Success (In #${targetChannel.name})`;
       } else {
         const user = await client.users.fetch(state.targetUserId);
-        await user.send(state.messageContent);
-        logText += ` | Status: Success (Direct DM Sent)`;
+        await user.send(`${state.messageContent}\n-# Bot Made By Onurum203`);
+        logText += ` | Status: Success (Direct DM)`;
       }
     }
-  } catch (error) {
-    logText += ` | Status: Failed (${error.message})`;
+  } catch (err) {
+    logText += ` | Status: Failed (${err.message})`;
   }
 
-  message.reply(logText);
-  owner.send(logText);
+  await message.reply(logText);
+  try {
+    await owner.send(logText);
+  } catch {}
 }
 
-const token = process.env.DISCORD_TOKEN;
-
-if (!token) {
-  console.error('Missing DISCORD_TOKEN environment variable.');
-  process.exit(1);
-}
-
-function shutdown(signal) {
-  console.log(`Received ${signal}; shutting down.`);
-  client.destroy();
-  process.exit(0);
-}
-
-process.once('SIGINT', () => shutdown('SIGINT'));
-process.once('SIGTERM', () => shutdown('SIGTERM'));
-
-client.login(token);
-
-const http = require('http');
-const server = http.createServer((req, res) => {
-  res.writeHead(200, { 'Content-Type': 'text/plain' });
-  res.end('Bot is running!');
-});
-server.listen(process.env.PORT || 3000);
-```]
+client.login(process.env.DISCORD_TOKEN);
