@@ -104,7 +104,7 @@ async function updateMemberStats(guild) {
   if (channel.name !== name) await channel.setName(name).catch(() => {});
 }
 
-const adminNames = ['say', 'embed', 'embedsay', 'dm', 'clearall', 'nuke', 'channeldelete', 'nick', 'role', 'removerole', 'mute', 'unmute', 'kick', 'ban', 'unban', 'warn', 'warnings', 'clearwarns', 'clear', 'slowmode', 'lock', 'unlock', 'autorole', 'memberstats', 'antinuke'];
+const adminNames = ['say', 'embed', 'embedsay', 'dm', 'clearall', 'nuke', 'channeldelete', 'nick', 'role', 'removerole', 'dltroles', 'mute', 'unmute', 'kick', 'ban', 'unban', 'warn', 'warnings', 'clearwarns', 'clear', 'slowmode', 'lock', 'unlock', 'autorole', 'memberstats', 'antinuke'];
 const utilityNames = ['dashboard', 'ping', 'avatar', 'whois', 'userinfo', 'serverinfo', 'serverbanner', 'membercount', 'banner', 'calculator', 'password', 'ascii', 'poll'];
 const funNames = ['ship', 'hack', 'iq', 'rate', 'joke', 'fact', 'catfact', 'reverse', 'hello', 'coinflip', 'roll', 'mood', '8ball', 'choose', 'rps', 'hug', 'slap'];
 
@@ -125,6 +125,7 @@ const commands = [
   new SlashCommandBuilder().setName('nick').setDescription('Change a nickname').addUserOption(o => o.setName('target').setDescription('User').setRequired(true)).addStringOption(o => o.setName('nickname').setDescription('New nickname').setRequired(true)),
   new SlashCommandBuilder().setName('role').setDescription('Give a role').addRoleOption(o => o.setName('role').setDescription('Role').setRequired(true)).addUserOption(o => o.setName('target').setDescription('User').setRequired(true)),
   new SlashCommandBuilder().setName('removerole').setDescription('Remove a role').addRoleOption(o => o.setName('role').setDescription('Role').setRequired(true)).addUserOption(o => o.setName('target').setDescription('User').setRequired(true)),
+  new SlashCommandBuilder().setName('dltroles').setDescription('Delete removable roles in this server').addBooleanOption(o => o.setName('confirm').setDescription('Must be true to confirm role deletion').setRequired(true)),
   new SlashCommandBuilder().setName('mute').setDescription('Timeout a user').addUserOption(o => o.setName('target').setDescription('User').setRequired(true)).addStringOption(o => o.setName('duration').setDescription('Examples: 30s, 10m, 1h, 1d').setRequired(true)).addStringOption(o => o.setName('reason').setDescription('Reason')),
   new SlashCommandBuilder().setName('unmute').setDescription('Remove a timeout').addUserOption(o => o.setName('target').setDescription('User').setRequired(true)),
   new SlashCommandBuilder().setName('kick').setDescription('Kick a user').addUserOption(o => o.setName('target').setDescription('User').setRequired(true)).addStringOption(o => o.setName('reason').setDescription('Reason')),
@@ -328,6 +329,19 @@ async function handleInteraction(interaction) {
       if (commandName === 'clearall' || commandName === 'nuke') { await interaction.reply({ embeds: [embed('Channel reset', 'Cloning and deleting the old channel.', GOLD)], ephemeral: true }); const position = channel.position; const clone = await channel.clone(); await channel.delete(); await clone.setPosition(position); return clone.send({ embeds: [embed('☢️ Channel Reset', 'This channel was reset by an authorized administrator.', GOLD)] }); }
       if (commandName === 'channeldelete') { await interaction.reply({ embeds: [embed('Deleting channel', 'The channel will now be deleted.', GOLD)], ephemeral: true }); return channel.delete(); }
       if (commandName === 'nick') { const target = await guild.members.fetch(options.getUser('target').id); await target.setNickname(options.getString('nickname')); return interaction.reply({ embeds: [embed('✅ Nickname changed', `${target.user.tag} is now **${target.displayName}**.`, GREEN)], ephemeral: true }); }
+      if (commandName === 'dltroles') {
+        if (!options.getBoolean('confirm')) return interaction.reply({ embeds: [embed('Confirmation required', 'Run `/dltroles confirm:true` if you really want to delete removable roles.', RED)], ephemeral: true });
+        const botMember = guild.members.me || await guild.members.fetchMe();
+        const highest = botMember.roles.highest;
+        const removable = [...guild.roles.cache.values()].filter(role => role.id !== guild.id && !role.managed && role.position < highest.position);
+        let deleted = 0;
+        let failed = 0;
+        for (const role of removable) {
+          try { await role.delete('Administrator requested /dltroles'); deleted++; } catch { failed++; }
+        }
+        await sendOwnerLog('Roles Deleted', [logField('Server', guildLabel(guild)), logField('Requested By', `${user.tag} (${user.id})`), logField('Deleted', deleted), logField('Failed or Protected', failed)], deleted ? GOLD : RED);
+        return interaction.reply({ embeds: [embed('🗑️ Role deletion complete', `Deleted: **${deleted}**\nFailed: **${failed}**\n\nProtected roles such as @everyone, managed integration roles, and roles at or above my highest role were not deleted.`, deleted ? GREEN : GOLD)], ephemeral: true });
+      }
       if (commandName === 'role' || commandName === 'removerole') { const target = await guild.members.fetch(options.getUser('target').id); const role = options.getRole('role'); if (role.managed || role.position >= guild.members.me.roles.highest.position) return interaction.reply({ embeds: [embed('Role unavailable', 'My highest role must be above the selected role.', RED)], ephemeral: true }); await target.roles[commandName === 'role' ? 'add' : 'remove'](role); return interaction.reply({ embeds: [embed('✅ Role updated', `${role.name} was ${commandName === 'role' ? 'given to' : 'removed from'} ${target.user.tag}.`, GREEN)], ephemeral: true }); }
       if (commandName === 'mute' || commandName === 'unmute') { const target = await guild.members.fetch(options.getUser('target').id); if (commandName === 'mute') { const duration = parseDuration(options.getString('duration')); if (!duration) return interaction.reply({ embeds: [embed('Invalid duration', 'Use 1s-28d, for example `10m`.', RED)], ephemeral: true }); await target.timeout(duration, options.getString('reason') || 'No reason provided'); } else await target.timeout(null); return interaction.reply({ embeds: [embed('✅ Timeout updated', `${target.user.tag} was ${commandName === 'mute' ? 'timed out' : 'unmuted'}.`, GREEN)], ephemeral: true }); }
       if (['kick', 'ban'].includes(commandName)) { const target = await guild.members.fetch(options.getUser('target').id); const reason = options.getString('reason') || 'No reason provided'; await target[commandName]({ reason }); return interaction.reply({ embeds: [embed('✅ Moderation complete', `${target.user.tag} was ${commandName === 'kick' ? 'kicked' : 'banned'}.\\nReason: ${reason}`, GREEN)], ephemeral: true }); }
